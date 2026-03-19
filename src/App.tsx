@@ -10,7 +10,8 @@ import {
   Bell, CreditCard, Sparkles, RefreshCw, Banknote, Landmark, AlertTriangle, Bot
 } from 'lucide-react';
 
-const apiKey = "AIzaSyCGm-S66h_JRcw7_5hfql6fclXHILDuuVA"; // Chave providenciada pelo ambiente
+// ⚠️ ATENÇÃO: Cole a sua chave do Google AI Studio aqui dentro das aspas!
+const apiKey = ""; 
 
 const DADOS_INICIAIS = [
   { id: '1', description: 'Salário', amount: 4500.00, type: 'income', category: 'Trabalho', date: '2026-03-01', status: 'paid', wallet: 'Conta Corrente', isSubscription: false },
@@ -334,7 +335,8 @@ export default function App() {
             systemInstruction: { parts: [{ text: systemInstruction }] }
           };
 
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+          // Alterado para o modelo gemini-1.5-flash global
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
           });
           
@@ -342,45 +344,84 @@ export default function App() {
           const responseData = await res.json();
           setAdvisorAdvice(responseData.candidates[0].content.parts[0].text);
       } catch(e) {
-          setAdvisorAdvice("Ops! O Conselheiro IA está a tomar um café. Tente novamente mais tarde.");
+          setAdvisorAdvice("Ops! O Conselheiro IA está a tomar um café. Verifique se adicionou a chave da API no código.");
       } finally {
           setIsAdvisorLoading(false);
       }
   };
 
-  // Leitura Inteligente de Comprovantes (IA)
+  // Leitura Inteligente de Comprovantes (IA) - AGORA COM COMPRESSOR DE IMAGENS!
   const handleReceiptImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    setIsReceiptImporting(true); setReceiptImportMessage({ type: '', text: '' });
+    setIsReceiptImporting(true); 
+    setReceiptImportMessage({ type: '', text: '' });
 
     try {
-      const base64Data = await new Promise((resolve, reject) => {
+      // Magia da Compressão: Reduz imagens de 5MB para ~100KB antes de enviar
+      const compressedBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = reject; reader.readAsDataURL(file);
+        reader.onloadend = () => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let width = img.width;
+            let height = img.height;
+            const maxSize = 800; // Limite máximo de resolução
+            
+            if (width > height && width > maxSize) {
+              height *= maxSize / width;
+              width = maxSize;
+            } else if (height > maxSize) {
+              width *= maxSize / height;
+              height = maxSize;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Converte para JPEG (formato universal aceite pela IA) com 70% de qualidade
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            resolve(dataUrl.split(',')[1]); // Fica só com a parte da Base64
+          };
+          img.onerror = () => reject(new Error("Falha ao carregar a imagem para compressão."));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(new Error("Falha ao ler o ficheiro."));
+        reader.readAsDataURL(file);
       });
 
       const systemInstruction = `Você é um assistente financeiro inteligente. Analise este comprovante.
       Retorne JSON estrito:
       'description': Nome curto da loja/recebedor.
-      'amount': Valor exato (ex: 150.50).
+      'amount': Valor numérico exato (ex: 150.50).
       'type': 'expense' ou 'income'.
       'category': Escolha entre as categorias financeiras padrão.
       'date': YYYY-MM-DD.`;
 
       const payload = {
         contents: [{ role: "user", parts: [
-            { text: "Extraia dados do comprovante." }, { inlineData: { mimeType: file.type, data: base64Data } }
+            { text: "Extraia dados do comprovante." }, 
+            { inlineData: { mimeType: "image/jpeg", data: compressedBase64 } }
         ]}],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { description: { type: "STRING" }, amount: { type: "NUMBER" }, type: { type: "STRING" }, category: { type: "STRING" }, date: { type: "STRING" } }, required: ["description", "amount", "type", "date"] } }
       };
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      // Alterado para o modelo gemini-1.5-flash global
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
+      
+      if (!res.ok) {
+          const errorData = await res.json();
+          console.error("Erro da API Gemini:", errorData);
+          throw new Error("Erro na comunicação com a IA.");
+      }
+
       const responseData = await res.json();
       const extracted = JSON.parse(responseData.candidates[0].content.parts[0].text);
       
@@ -410,8 +451,14 @@ export default function App() {
       setTransactions(updatedTransactions.sort((a, b) => new Date(b.date) - new Date(a.date)));
       setTimeout(() => setIsReceiptImportOpen(false), 4500);
 
-    } catch (err) { setReceiptImportMessage({ type: 'error', text: "Erro ao ler comprovante." }); } 
-    finally { setIsReceiptImporting(false); e.target.value = ''; }
+    } catch (err) { 
+        console.error("Erro completo:", err);
+        setReceiptImportMessage({ type: 'error', text: "Erro ao ler comprovante. Verifique a sua chave da API." }); 
+    } 
+    finally { 
+        setIsReceiptImporting(false); 
+        e.target.value = ''; 
+    }
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
