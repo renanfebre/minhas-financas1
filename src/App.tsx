@@ -322,6 +322,8 @@ export default function App() {
   const handleGetAdvisorAdvice = async () => {
       setIsAdvisorLoading(true);
       try {
+          if (!apiKey) throw new Error("Chave da API não encontrada no código.");
+          
           const topCategories = categoryStats.slice(0,3).map(c => `${c.category} (${formatCurrency(c.amount)})`).join(', ');
           
           const systemInstruction = `Você é um Conselheiro Financeiro amigável e super inteligente.
@@ -335,22 +337,24 @@ export default function App() {
             systemInstruction: { parts: [{ text: systemInstruction }] }
           };
 
-          // Alterado para o modelo gemini-1.5-flash global
           const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
           });
           
-          if (!res.ok) throw new Error("Erro na IA");
+          if (!res.ok) {
+              const errorData = await res.json();
+              throw new Error(errorData.error?.message || "Erro de comunicação com a IA.");
+          }
           const responseData = await res.json();
           setAdvisorAdvice(responseData.candidates[0].content.parts[0].text);
       } catch(e) {
-          setAdvisorAdvice("Ops! O Conselheiro IA está a tomar um café. Verifique se adicionou a chave da API no código.");
+          setAdvisorAdvice(`Ops! Falhou: ${e.message}`);
       } finally {
           setIsAdvisorLoading(false);
       }
   };
 
-  // Leitura Inteligente de Comprovantes (IA) - AGORA COM COMPRESSOR DE IMAGENS!
+  // Leitura Inteligente de Comprovantes (IA) - MELHORADA PARA IMAGENS E PDF
   const handleReceiptImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -359,40 +363,54 @@ export default function App() {
     setReceiptImportMessage({ type: '', text: '' });
 
     try {
-      // Magia da Compressão: Reduz imagens de 5MB para ~100KB antes de enviar
-      const compressedBase64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let width = img.width;
-            let height = img.height;
-            const maxSize = 800; // Limite máximo de resolução
-            
-            if (width > height && width > maxSize) {
-              height *= maxSize / width;
-              width = maxSize;
-            } else if (height > maxSize) {
-              width *= maxSize / height;
-              height = maxSize;
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            // Converte para JPEG (formato universal aceite pela IA) com 70% de qualidade
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
-            resolve(dataUrl.split(',')[1]); // Fica só com a parte da Base64
-          };
-          img.onerror = () => reject(new Error("Falha ao carregar a imagem para compressão."));
-          img.src = reader.result;
-        };
-        reader.onerror = () => reject(new Error("Falha ao ler o ficheiro."));
-        reader.readAsDataURL(file);
-      });
+      if (!apiKey) throw new Error("A chave da API (apiKey) está vazia no código.");
+
+      let mimeType = file.type;
+      let base64Data = "";
+
+      // Verifica se é imagem para comprimir
+      if (file.type.startsWith('image/')) {
+          base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxSize = 800; // Limite máximo para não bloquear a internet do telemóvel
+                
+                if (width > height && width > maxSize) {
+                  height *= maxSize / width;
+                  width = maxSize;
+                } else if (height > maxSize) {
+                  width *= maxSize / height;
+                  height = maxSize;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                resolve(canvas.toDataURL('image/jpeg', 0.7).split(',')[1]); 
+              };
+              img.onerror = () => reject(new Error("Falha ao processar a imagem da câmara."));
+              img.src = reader.result;
+            };
+            reader.onerror = () => reject(new Error("Falha ao ler o ficheiro no telemóvel."));
+            reader.readAsDataURL(file);
+          });
+          mimeType = 'image/jpeg';
+      } else {
+          // Se for PDF (ou outro formato), NÃO tenta comprimir, lê diretamente
+          base64Data = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result.split(',')[1]);
+              reader.onerror = () => reject(new Error("Falha ao ler o ficheiro PDF."));
+              reader.readAsDataURL(file);
+          });
+      }
 
       const systemInstruction = `Você é um assistente financeiro inteligente. Analise este comprovante.
       Retorne JSON estrito:
@@ -405,13 +423,12 @@ export default function App() {
       const payload = {
         contents: [{ role: "user", parts: [
             { text: "Extraia dados do comprovante." }, 
-            { inlineData: { mimeType: "image/jpeg", data: compressedBase64 } }
+            { inlineData: { mimeType: mimeType, data: base64Data } }
         ]}],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { description: { type: "STRING" }, amount: { type: "NUMBER" }, type: { type: "STRING" }, category: { type: "STRING" }, date: { type: "STRING" } }, required: ["description", "amount", "type", "date"] } }
       };
 
-      // Alterado para o modelo gemini-1.5-flash global
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
@@ -419,7 +436,7 @@ export default function App() {
       if (!res.ok) {
           const errorData = await res.json();
           console.error("Erro da API Gemini:", errorData);
-          throw new Error("Erro na comunicação com a IA.");
+          throw new Error(errorData.error?.message || "Servidor da IA recusou a imagem.");
       }
 
       const responseData = await res.json();
@@ -432,7 +449,6 @@ export default function App() {
         updatedTransactions[matchIndex] = {
           ...updatedTransactions[matchIndex], status: 'paid', date: extracted.date && extracted.date.match(/^\d{4}-\d{2}-\d{2}$/) ? extracted.date : updatedTransactions[matchIndex].date
         };
-        // Ativa a magia da subscrição se aplicável
         if (updatedTransactions[matchIndex].isSubscription) {
              const nextDate = new Date(`${updatedTransactions[matchIndex].date}T12:00:00`);
              nextDate.setMonth(nextDate.getMonth() + 1);
@@ -453,7 +469,8 @@ export default function App() {
 
     } catch (err) { 
         console.error("Erro completo:", err);
-        setReceiptImportMessage({ type: 'error', text: "Erro ao ler comprovante. Verifique a sua chave da API." }); 
+        // MOSTRA O ERRO REAL PARA SABERMOS O QUE CORREU MAL
+        setReceiptImportMessage({ type: 'error', text: `Falhou: ${err.message}` }); 
     } 
     finally { 
         setIsReceiptImporting(false); 
