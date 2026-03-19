@@ -10,7 +10,7 @@ import {
   Bell, CreditCard, Sparkles, RefreshCw, Banknote, Landmark, AlertTriangle, Bot
 } from 'lucide-react';
 
-const apiKey = ""; // Chave providenciada pelo ambiente
+const apiKey = "AIzaSyCGm-S66h_JRcw7_5hfql6fclXHILDuuVA"; // Chave providenciada pelo ambiente
 
 const DADOS_INICIAIS = [
   { id: '1', description: 'Salário', amount: 4500.00, type: 'income', category: 'Trabalho', date: '2026-03-01', status: 'paid', wallet: 'Conta Corrente', isSubscription: false },
