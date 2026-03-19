@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 // ⚠️ ATENÇÃO: Cole a sua chave do Google AI Studio aqui dentro das aspas!
-const apiKey = ""; 
+const apiKey = "AIzaSyCGm-S66h_JRcw7_5hfql6fclXHILDuuVA"; 
 
 const DADOS_INICIAIS = [
   { id: '1', description: 'Salário', amount: 4500.00, type: 'income', category: 'Trabalho', date: '2026-03-01', status: 'paid', wallet: 'Conta Corrente', isSubscription: false },
